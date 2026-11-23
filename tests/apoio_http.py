@@ -21,6 +21,7 @@ from freitask_mcp.servidor import criar_servidor
 URL = "http://127.0.0.1:8421"
 SENHA = "senha-de-mentira-com-16-ou-mais"
 CALLBACK = "https://claude.ai/api/mcp/auth_callback"
+CLIENTE_FIXO = "cliente-fixo-de-mentira-0123456789abcdef"
 CINCO = {"freitask_list", "freitask_show", "freitask_doctor", "freitask_new", "freitask_set"}
 CABECALHOS_MCP = {"Accept": "application/json, text/event-stream"}
 
@@ -102,6 +103,14 @@ def codigo_de(resposta) -> tuple[str, str | None]:
     return consulta["code"][0], (consulta.get("state") or [None])[0]
 
 
+def _credencial(cliente: dict) -> dict:
+    """O `client_id` e, se o cliente tem, o segredo: o cliente público (o fixo) manda só o ID."""
+    credencial = {"client_id": cliente["client_id"]}
+    if cliente.get("client_secret"):
+        credencial["client_secret"] = cliente["client_secret"]
+    return credencial
+
+
 def trocar(c: TestClient, cliente: dict, codigo: str, verificador: str, redirect=CALLBACK):
     return c.post(
         "/token",
@@ -109,9 +118,8 @@ def trocar(c: TestClient, cliente: dict, codigo: str, verificador: str, redirect
             "grant_type": "authorization_code",
             "code": codigo,
             "redirect_uri": redirect,
-            "client_id": cliente["client_id"],
-            "client_secret": cliente["client_secret"],
             "code_verifier": verificador,
+            **_credencial(cliente),
         },
     )
 
@@ -119,12 +127,7 @@ def trocar(c: TestClient, cliente: dict, codigo: str, verificador: str, redirect
 def renovar(c: TestClient, cliente: dict, refresco: str):
     return c.post(
         "/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresco,
-            "client_id": cliente["client_id"],
-            "client_secret": cliente["client_secret"],
-        },
+        data={"grant_type": "refresh_token", "refresh_token": refresco, **_credencial(cliente)},
     )
 
 
@@ -147,15 +150,20 @@ def conectar(c: TestClient, **extra) -> Sessao:
     return Sessao(cliente, tokens["access_token"], tokens["refresh_token"])
 
 
+def conectar_fixo(c: TestClient, client_id: str = CLIENTE_FIXO) -> Sessao:
+    """O mesmo caminho feliz com o cliente fixo: sem registro e sem segredo, só o PKCE."""
+    cliente = {"client_id": client_id}
+    verificador, desafio = pkce()
+    t = pedido_de(iniciar(c, cliente, desafio))
+    codigo, _ = codigo_de(entrar(c, t, SENHA))
+    resposta = trocar(c, cliente, codigo, verificador)
+    assert resposta.status_code == 200, resposta.text
+    tokens = resposta.json()
+    return Sessao(cliente, tokens["access_token"], tokens["refresh_token"])
+
+
 def revogar(c: TestClient, sessao: Sessao, token: str):
-    return c.post(
-        "/revoke",
-        data={
-            "token": token,
-            "client_id": sessao.cliente["client_id"],
-            "client_secret": sessao.cliente["client_secret"],
-        },
-    )
+    return c.post("/revoke", data={"token": token, **_credencial(sessao.cliente)})
 
 
 def mcp(c: TestClient, token: str | None, metodo: str, params=None, caminho="/mcp", **cabecalhos):

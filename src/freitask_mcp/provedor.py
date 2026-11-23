@@ -7,6 +7,11 @@ um pedido de login, um código e um token, e o que fica no disco.
 
 Fica no disco (`estado.json`, 0600, troca atômica) só clientes e tokens, e de cada token só o
 SHA-256. Pedidos de login e códigos vivem na memória: reiniciar derruba o que está no meio.
+
+Há dois modos. No registro aberto, os clientes vêm do `/register` e vão para o disco. No cliente
+fixo (`Configuracao.cliente`), o servidor conhece um cliente só, montado da configuração, e ele
+não vai para o disco: o `estado.json` guarda só tokens. Nos dois, token de cliente que o servidor
+não conhece não vale, e é isso que faz a troca de modo cortar o que o outro emitiu.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from mcp.server.auth.provider import (
     TokenError,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic import AnyUrl
 
 from .config import ConfigInvalida, Configuracao
 from .freios import Janela
@@ -43,6 +49,19 @@ VALIDADE_DO_REFRESCO = 30 * 24 * 60 * 60
 REGISTROS_POR_HORA = 20
 CLIENTES_GUARDADOS = 50
 PEDIDOS_GUARDADOS = 200
+
+
+def cliente_fixo(config: Configuracao) -> OAuthClientInformationFull:
+    """O único cliente do modo fixo: público (sem segredo, só PKCE), com os callbacks da lista."""
+    assert config.cliente is not None
+    return OAuthClientInformationFull(
+        client_id=config.cliente,
+        client_name="Conector do freitask",
+        redirect_uris=[AnyUrl(uri) for uri in config.redirects],
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+        token_endpoint_auth_method="none",
+    )
 
 
 class ErroDeEstado(ConfigInvalida):
@@ -94,6 +113,11 @@ class Provedor:
         self._acessos: dict[str, dict] = {}
         self._refrescos: dict[str, dict] = {}
         self.registros = Janela(REGISTROS_POR_HORA, 3600, self._agora)
+        self._fixo = cliente_fixo(config) if config.cliente is not None else None
+        if self._fixo is not None:
+            # Os clientes do registro aberto, se o estado os tem, ficam de fora, e o próximo
+            # `_salvar` os tira do arquivo; os tokens deles já não valem (cliente desconhecido).
+            self._clientes[self._fixo.client_id] = self._fixo
         self._carregar()
 
     # --- disco ------------------------------------------------------------------------
@@ -107,7 +131,8 @@ class Provedor:
                 raise ValueError(f"versão {dados['versao']}")
             for bruto in dados["clientes"]:
                 cliente = OAuthClientInformationFull.model_validate(bruto)
-                self._clientes[cliente.client_id] = cliente
+                if self._fixo is None:
+                    self._clientes[cliente.client_id] = cliente
             self._acessos = dict(dados["acessos"])
             self._refrescos = dict(dados["refrescos"])
         except (OSError, ValueError, KeyError, TypeError) as e:
@@ -122,7 +147,9 @@ class Provedor:
             {
                 "versao": VERSAO_DO_ESTADO,
                 "clientes": [
-                    c.model_dump(mode="json", exclude_none=True) for c in self._clientes.values()
+                    c.model_dump(mode="json", exclude_none=True)
+                    for c in self._clientes.values()
+                    if c is not self._fixo
                 ],
                 "acessos": self._acessos,
                 "refrescos": self._refrescos,
@@ -135,6 +162,9 @@ class Provedor:
         return self._clientes.get(client_id)
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
+        if self._fixo is not None:
+            # A rota nem existe neste modo; é a segunda trava, para o caso de o SDK a montar.
+            raise RegistrationError("invalid_client_metadata", "o registro está desligado")
         for uri in client_info.redirect_uris or []:
             if str(uri) not in self._redirects:
                 raise RegistrationError(
@@ -251,10 +281,13 @@ class Provedor:
             access_token=acesso, expires_in=VALIDADE_DO_ACESSO, refresh_token=refresco
         )
 
+    def _vale(self, registro: dict) -> bool:
+        """Não venceu e é de um cliente que o servidor conhece."""
+        return registro["expira"] > self._agora() and registro["client_id"] in self._clientes
+
     def _podar_tokens(self) -> None:
-        agora = self._agora()
-        self._acessos = {h: r for h, r in self._acessos.items() if r["expira"] > agora}
-        self._refrescos = {h: r for h, r in self._refrescos.items() if r["expira"] > agora}
+        self._acessos = {h: r for h, r in self._acessos.items() if self._vale(r)}
+        self._refrescos = {h: r for h, r in self._refrescos.items() if self._vale(r)}
 
     def _soltar_par(self, par: str) -> None:
         self._acessos = {h: r for h, r in self._acessos.items() if r["par"] != par}
@@ -262,7 +295,7 @@ class Provedor:
 
     async def load_access_token(self, token: str) -> AccessToken | None:
         registro = self._acessos.get(digest(token))
-        if registro is None or registro["expira"] <= self._agora():
+        if registro is None or not self._vale(registro):
             return None
         return AccessToken(
             token=token,
@@ -279,7 +312,7 @@ class Provedor:
         if (
             registro is None
             or registro["client_id"] != client.client_id
-            or registro["expira"] <= self._agora()
+            or not self._vale(registro)
         ):
             return None
         return RefreshToken(

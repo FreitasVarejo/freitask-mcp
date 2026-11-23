@@ -7,6 +7,7 @@ servidor chama `validar` antes de montar qualquer coisa: não há como subir sem
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 import time
 from collections.abc import Callable, Mapping
@@ -24,6 +25,9 @@ REDIRECTS_PADRAO = (
 )
 TAMANHO_MINIMO_DA_SENHA = 16
 HOSTS_SEM_TLS = ("127.0.0.1", "localhost", "::1")
+TAMANHO_MINIMO_DO_CLIENTE = 32
+# `fullmatch`, não `$`: o `$` aceitaria uma quebra de linha no fim.
+CARACTERES_DO_CLIENTE = re.compile(r"[A-Za-z0-9_-]+")
 
 AJUDA = """\
 freitask-mcp-http: o servidor MCP do freitask em HTTP, com login próprio (OAuth).
@@ -39,10 +43,17 @@ login em /login e GET /health. Toda configuração é variável de ambiente:
   FREITASK_MCP_PORTA      a porta (padrão 8421)
   FREITASK_MCP_REDIRECTS  os callbacks aceitos no registro, separados por vírgula
                           (padrão: os do claude.ai e do claude.com)
+  FREITASK_MCP_CLIENTE    opcional: o client ID do cliente fixo, 32 caracteres ou mais, só
+                          letras, dígitos, - e _. Com ele o registro fica desligado (sem /register
+                          e sem registration_endpoint nos metadados) e o servidor conhece um
+                          cliente só: o desse ID, público (sem segredo, só PKCE), com os
+                          callbacks de FREITASK_MCP_REDIRECTS. Sem ele, o registro é aberto.
+                          Trocar de modo corta os tokens que o modo anterior emitiu.
 
 O vault é o do HOME: $HOME/ObsidianVault. O servidor só sobe com a URL e a senha válidas, a pasta
 do estado gravável e fora do vault, $HOME/ObsidianVault/projects no lugar e o freitask
-respondendo; faltando um, sai com erro e uma linha que diz qual.
+respondendo (e, se FREITASK_MCP_CLIENTE estiver definida, o ID dentro do formato); faltando um,
+sai com erro e uma linha que diz qual.
 """
 
 
@@ -58,6 +69,8 @@ class Configuracao:
     host: str = HOST_PADRAO
     porta: int = PORTA_PADRAO
     redirects: tuple[str, ...] = REDIRECTS_PADRAO
+    # O client ID do cliente fixo. Com ele o registro fica desligado; sem ele, é aberto.
+    cliente: str | None = None
     # O relógio de tudo que expira. O SDK confere a validade também pelo relógio real, então um
     # relógio de teste precisa partir de `time.time()` e só avançar dali.
     relogio: Callable[[], float] = time.time
@@ -125,6 +138,9 @@ def do_ambiente(env: Mapping[str, str] | None = None) -> Configuracao:
         if env.get("FREITASK_MCP_REDIRECTS", "").strip()
         else REDIRECTS_PADRAO
     )
+    # Definida e em branco não é "sem a variável": o dono quis o modo fixo e errou, e cair no
+    # registro aberto em silêncio seria o erro caro. O `validar` recusa o ID vazio.
+    cliente = env["FREITASK_MCP_CLIENTE"].strip() if "FREITASK_MCP_CLIENTE" in env else None
     return Configuracao(
         url=url,
         senha=senha,
@@ -132,6 +148,7 @@ def do_ambiente(env: Mapping[str, str] | None = None) -> Configuracao:
         host=env.get("FREITASK_MCP_HOST", "").strip() or HOST_PADRAO,
         porta=porta,
         redirects=redirects,
+        cliente=cliente,
     )
 
 
@@ -147,6 +164,8 @@ def validar(config: Configuracao) -> None:
         raise ConfigInvalida(
             f"FREITASK_MCP_SENHA precisa de {TAMANHO_MINIMO_DA_SENHA} caracteres ou mais"
         )
+    if config.cliente is not None:
+        _validar_cliente(config.cliente)
     _validar_estado(config.estado, config.vault)
     if not (config.vault / "projects").is_dir():
         raise ConfigInvalida(
@@ -156,6 +175,15 @@ def validar(config: Configuracao) -> None:
         engine.json_de(engine.rodar(["projects", "--json"]))
     except engine.FreitaskErro as e:
         raise ConfigInvalida(f"o freitask não respondeu: {e}") from None
+
+
+def _validar_cliente(cliente: str) -> None:
+    if len(cliente) < TAMANHO_MINIMO_DO_CLIENTE:
+        raise ConfigInvalida(
+            f"FREITASK_MCP_CLIENTE precisa de {TAMANHO_MINIMO_DO_CLIENTE} caracteres ou mais"
+        )
+    if not CARACTERES_DO_CLIENTE.fullmatch(cliente):
+        raise ConfigInvalida("FREITASK_MCP_CLIENTE só pode ter letras, dígitos, - e _")
 
 
 def _validar_estado(estado: Path, vault: Path) -> None:

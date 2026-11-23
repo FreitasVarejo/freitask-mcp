@@ -248,3 +248,70 @@ def test_o_help_lista_as_variaveis_e_nao_sobe():
         "FREITASK_MCP_REDIRECTS",
     ):
         assert nome in resultado.stdout
+
+
+# --- o cliente fixo -------------------------------------------------------------------
+
+CLIENTE = "cliente-fixo-de-mentira-0123456789abcdef"
+
+
+def test_o_cliente_fixo_valido_sobe(config):
+    validar(replace(config, cliente=CLIENTE))
+    validar(replace(config, cliente="a" * 32))
+    validar(replace(config, cliente="Aa0_-" * 8))
+    assert criar_servidor(replace(config, cliente=CLIENTE)).app is not None
+
+
+@pytest.mark.parametrize("cliente", ["", "a" * 31, "curto"])
+def test_cliente_fixo_curto_nao_sobe(config, cliente):
+    recusa(replace(config, cliente=cliente), "FREITASK_MCP_CLIENTE precisa de 32")
+
+
+@pytest.mark.parametrize(
+    "cliente",
+    [
+        CLIENTE + " ",
+        CLIENTE + "\n",
+        CLIENTE + ".",
+        CLIENTE + "/",
+        CLIENTE + "é",
+        "cliente fixo de mentira com espacos 0123456789",
+        CLIENTE + "&client_secret=x",
+    ],
+)
+def test_cliente_fixo_com_caractere_fora_da_lista_nao_sobe(config, cliente):
+    recusa(replace(config, cliente=cliente), "FREITASK_MCP_CLIENTE só pode ter")
+
+
+def test_o_ambiente_com_e_sem_o_cliente_fixo():
+    assert do_ambiente(AMBIENTE).cliente is None
+    assert do_ambiente({**AMBIENTE, "FREITASK_MCP_CLIENTE": f" {CLIENTE} "}).cliente == CLIENTE
+
+
+@pytest.mark.parametrize("valor", ["", "   "])
+def test_a_variavel_do_cliente_em_branco_nao_cai_no_registro_aberto(config, valor):
+    """Definida e vazia é o modo fixo mal configurado: recusa, em vez de abrir o registro."""
+    lida = do_ambiente({**AMBIENTE, "FREITASK_MCP_CLIENTE": valor})
+
+    recusa(replace(config, cliente=lida.cliente), "FREITASK_MCP_CLIENTE")
+
+
+def test_o_processo_com_o_cliente_fixo_invalido_sai_com_erro_e_uma_linha(vault, tmp_path):
+    estado = tmp_path / "estado"
+    estado.mkdir()
+    ambiente = {**AMBIENTE, "FREITASK_MCP_ESTADO": str(estado)}
+
+    for invalido in ("curto", CLIENTE + "!"):
+        resultado = rodar_remoto(env_extra={**ambiente, "FREITASK_MCP_CLIENTE": invalido})
+
+        assert resultado.returncode == 1, resultado.stderr
+        assert resultado.stdout == ""
+        linhas = resultado.stderr.strip().splitlines()
+        assert len(linhas) == 1 and "FREITASK_MCP_CLIENTE" in linhas[0], resultado.stderr
+
+
+def test_o_help_lista_a_variavel_do_cliente_fixo():
+    resultado = rodar_remoto("--help", env_extra={})
+
+    assert resultado.returncode == 0
+    assert "FREITASK_MCP_CLIENTE" in resultado.stdout

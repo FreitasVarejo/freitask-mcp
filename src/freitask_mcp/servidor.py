@@ -50,9 +50,10 @@ class Guarda:
     """O que vem antes das rotas: caminho canônico e o freio do `/register`.
 
     O SDK só devolve 400 num registro recusado; o 429 do 21º registro da hora precisa estar aqui.
+    No modo de cliente fixo não há freio (`registros` é None): o `/register` é 404 sempre.
     """
 
-    def __init__(self, app: ASGIApp, registros: Janela):
+    def __init__(self, app: ASGIApp, registros: Janela | None):
         self.app = app
         self.registros = registros
 
@@ -61,7 +62,12 @@ class Guarda:
             caminho = _caminho_canonico(scope["path"])
             if caminho != scope["path"]:
                 scope = {**scope, "path": caminho, "raw_path": caminho.encode()}
-            if caminho == "/register" and scope["method"] == "POST" and self.registros.cheia():
+            if (
+                self.registros is not None
+                and caminho == "/register"
+                and scope["method"] == "POST"
+                and self.registros.cheia()
+            ):
                 resposta = JSONResponse(
                     {
                         "error": "too_many_requests",
@@ -89,7 +95,8 @@ def criar_servidor(config: Configuracao) -> Servidor:
             # há um dono e um recurso. Todo token sai carimbado com o recurso do servidor.
             required_scopes=None,
             validate_token_resource=True,
-            client_registration_options=ClientRegistrationOptions(enabled=True),
+            # Com o cliente fixo o SDK não monta `/register` nem põe `registration_endpoint`.
+            client_registration_options=ClientRegistrationOptions(enabled=config.cliente is None),
             revocation_options=RevocationOptions(enabled=True),
         ),
         host=config.host,
@@ -105,5 +112,5 @@ def criar_servidor(config: Configuracao) -> Servidor:
     register_tools(mcp, audited=auditoria)
     freio_de_senha = login.registrar_rotas(mcp, config, provedor)
     app = mcp.streamable_http_app()
-    app.add_middleware(Guarda, registros=provedor.registros)
+    app.add_middleware(Guarda, registros=provedor.registros if config.cliente is None else None)
     return Servidor(config, mcp, provedor, auditoria, freio_de_senha, app)
