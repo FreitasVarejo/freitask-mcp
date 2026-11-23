@@ -11,7 +11,7 @@ dependencies = [
 
 [project.scripts]
 freitask-mcp = "freitask_mcp.local:main"
-
+vault-mcp-freitask = "freitask_mcp.extension:main"
 
 [dependency-groups]
 dev = [
