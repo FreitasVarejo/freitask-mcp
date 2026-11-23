@@ -84,3 +84,22 @@ def chamar(mcp: FastMCP, nome: str, **argumentos):
     if isinstance(resultado, tuple):
         resultado = resultado[0]
     return json.loads("".join(getattr(bloco, "text", "") for bloco in resultado))
+
+
+@pytest.fixture
+def relogio():
+    from .apoio_http import RelogioFalso
+
+    return RelogioFalso()
+
+
+@pytest.fixture
+def config(vault, tmp_path, relogio):
+    """A configuração do servidor remoto sobre o vault de fixture, com o estado fora dele."""
+    from freitask_mcp.config import Configuracao
+
+    from .apoio_http import SENHA, URL
+
+    estado = tmp_path / "estado"
+    estado.mkdir()
+    return Configuracao(url=URL, senha=SENHA, estado=estado, relogio=relogio)

@@ -9,6 +9,7 @@ dependencies = [
 
 [project.scripts]
 freitask-mcp = "freitask_mcp.local:main"
+freitask-mcp-http = "freitask_mcp.remoto:main"
 
 [dependency-groups]
 dev = [
