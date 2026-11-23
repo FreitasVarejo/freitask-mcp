@@ -43,6 +43,16 @@ tokens) na pasta do estado, e registra cada escrita em `auditoria.jsonl` nela. Q
 internet fica atrás de um proxy com TLS; o endereço que o servidor escreve nos metadados vem de
 `FREITASK_MCP_URL`, nunca de cabeçalho da requisição.
 
+**Cliente fixo (opcional).** Por padrão o registro é aberto: o claude.ai se registra em
+`/register`, e a tela de login fica ao alcance de quem registrar um cliente. Com
+`FREITASK_MCP_CLIENTE` (um client ID de 32 caracteres ou mais, só letras, dígitos, `-` e `_`) o
+registro fecha: some a rota `/register` e o `registration_endpoint` dos metadados, e o servidor
+conhece um cliente só, o desse ID, público (sem segredo, só PKCE) e com os callbacks de
+`FREITASK_MCP_REDIRECTS`. No claude.ai, o ID entra à mão em "Advanced", ao adicionar o conector.
+Quem não tem o ID não chega à tela de login. Trocar de modo corta os tokens que o outro emitiu
+(token de cliente que o servidor não conhece não vale); para voltar ao registro aberto, tire a
+variável.
+
 ## Desenvolver
 
 ```bash

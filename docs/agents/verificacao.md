@@ -52,6 +52,23 @@ skill: globs do que mudou, dois espaços, o comando na raiz do repo.
   kill %1; ls -l "$S/estado"                            # estado.json em 0600 (e auditoria.jsonl, se houve escrita)
   ```
 
+  O modo de cliente fixo: o mesmo comando, com `FREITASK_MCP_CLIENTE` de mentira (32 caracteres
+  ou mais, só letras, dígitos, `-` e `_`). O `/register` passa a ser 404, e o `/authorize` só leva
+  à tela de login com o ID certo:
+
+  ```bash
+  ID=cliente-fixo-de-mentira-0123456789abcdef
+  # suba o servidor como acima, com FREITASK_MCP_CLIENTE=$ID no ambiente
+  curl -si -X POST $U/register -H 'Content-Type: application/json' \
+    -d '{"redirect_uris":["https://claude.ai/api/mcp/auth_callback"]}'  # 404
+  curl -s $U/.well-known/oauth-authorization-server   # sem registration_endpoint
+  A="$U/authorize?response_type=code&redirect_uri=https://claude.ai/api/mcp/auth_callback"
+  A="$A&code_challenge=ZXhlbXBsby1kZS1kZXNhZmlvLXBrY2UtczI1Ni1kUk8tdGVzdGU&code_challenge_method=S256"
+  curl -si "$A&client_id=$ID" | grep -i '^location'    # .../login?t=...
+  curl -si "$A&client_id=outro-id" | head -1           # 400, sem Location
+  ```
+
   A recusa de subida: rode o mesmo comando sem uma das variáveis (ou com a senha curta, ou com
-  `FREITASK_MCP_ESTADO` dentro de `$HOME/ObsidianVault`) e o processo sai com código 1 e uma
+  `FREITASK_MCP_ESTADO` dentro de `$HOME/ObsidianVault`, ou com `FREITASK_MCP_CLIENTE` curto ou
+  com caractere fora da lista) e o processo sai com código 1 e uma
   linha que diz a causa. `freitask-mcp-http --help` lista as variáveis.
