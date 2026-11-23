@@ -52,6 +52,11 @@ def test_o_caminho_inteiro_descoberta_registro_login_token_e_uma_tool(
     assert armazem.tokens.access_token and armazem.tokens.refresh_token
     assert criada["path"] == "projects/beta/tasks/pelo-sdk.md"
     assert "pelo-sdk" in (vault / "CURRENT.md").read_text(encoding="utf-8")
+    [linha] = [
+        json.loads(x)
+        for x in (config.estado / "auditoria.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert linha["client_id"] == armazem.cliente.client_id, "o chamador chegou à tool síncrona"
     # Nada de senha, token nem código no log do servidor (o do cliente do SDK fica de fora).
     do_servidor = "\n".join(
         r.getMessage() for r in caplog.records if not r.name.startswith("mcp.client")

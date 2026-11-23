@@ -5,6 +5,7 @@ pelo `Host` real. O resto roda contra o app ASGI, sem processo.
 """
 
 import asyncio
+import json
 import os
 import socket
 import subprocess
@@ -104,6 +105,10 @@ def test_o_processo_com_o_cliente_do_sdk_pela_rede(processo, vault):
     assert tools == CINCO
     assert not criada.isError
     assert "pela-rede" in (vault / "CURRENT.md").read_text(encoding="utf-8")
+    [linha] = [
+        json.loads(x) for x in (estado / "auditoria.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert linha["client_id"] == armazem.cliente.client_id
 
 
 def test_o_processo_nao_loga_a_url_do_login_nem_segredo(processo):

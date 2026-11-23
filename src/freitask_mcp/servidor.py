@@ -22,6 +22,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import login
+from .auditoria import Auditoria
 from .config import Configuracao, validar
 from .freios import Janela
 from .provedor import Provedor
@@ -33,6 +34,7 @@ class Servidor:
     config: Configuracao
     mcp: FastMCP
     provedor: Provedor
+    auditoria: Auditoria
     freio_de_senha: Janela
     app: Starlette
 
@@ -75,6 +77,7 @@ class Guarda:
 def criar_servidor(config: Configuracao) -> Servidor:
     validar(config)
     provedor = Provedor(config)
+    auditoria = Auditoria(config.estado / "auditoria.jsonl", config.relogio)
     origem = urlsplit(config.url)
     mcp = FastMCP(
         "freitask",
@@ -99,8 +102,8 @@ def criar_servidor(config: Configuracao) -> Servidor:
             allowed_origins=[config.url],
         ),
     )
-    register_tools(mcp)
+    register_tools(mcp, audited=auditoria)
     freio_de_senha = login.registrar_rotas(mcp, config, provedor)
     app = mcp.streamable_http_app()
     app.add_middleware(Guarda, registros=provedor.registros)
-    return Servidor(config, mcp, provedor, freio_de_senha, app)
+    return Servidor(config, mcp, provedor, auditoria, freio_de_senha, app)
