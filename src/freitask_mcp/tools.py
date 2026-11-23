@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import unicodedata
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, get_args
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -304,7 +304,8 @@ def register_tools(mcp, audited: Auditoria = _sem_auditoria) -> None:
         name="freitask_set",
         description=(
             "Muda uma task: fase (só todo, abstract, tip ou quote: Não iniciada, Refinando, "
-            "Refinada, Algum dia), título, descrição, volta_em, prazo e bloqueada_por. Só o que "
+            "Refinada, Algum dia; e só em task que já está numa dessas quatro), título, "
+            "descrição, volta_em, prazo e bloqueada_por. Só o que "
             "for dado muda; texto vazio limpa desc, volta_em, prazo e bloqueada_por. Datas em "
             "AAAA-MM-DD. bloqueada_por substitui a lista inteira. Devolve a task como ficou."
         ),
@@ -351,7 +352,16 @@ def register_tools(mcp, audited: Auditoria = _sem_auditoria) -> None:
                 ids = [_id_de(b, "bloqueada_por") for b in bloqueada_por]
                 flags.append(f"--bloqueada-por={','.join(ids)}")
             alvo_id = _id_de(id, "id")
-            caminho = engine.relativo_ao_vault(_mostrar(alvo_id)["path"])
+            atual = _mostrar(alvo_id)
+            # "Trocar a fase ENTRE todo, abstract, tip e quote" (~/ObsidianVault/AGENTS.md): a
+            # task em outra fase está com quem implementa ou homologa, e a fase dela não sai
+            # dali por este canal. Título, descrição, prazo e dependência seguem livres.
+            if fase is not None and atual["callout"] not in get_args(Fase):
+                raise ToolError(
+                    f"a task {alvo_id!r} está em {atual['status']}: por aqui a fase só muda em "
+                    "task que está em Não iniciada, Refinando, Refinada ou Algum dia"
+                )
+            caminho = engine.relativo_ao_vault(atual["path"])
         except FreitaskErro as e:
             raise _erro(e) from e
 

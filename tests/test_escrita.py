@@ -204,6 +204,29 @@ def test_set_recusa_as_outras_fases(mcp, fase):
     assert task_do_cli("corrigir-bug")["callout"] == "todo"
 
 
+@pytest.mark.parametrize("fase_atual", ["example", "question", "warning", "check"])
+def test_set_recusa_mudar_a_fase_de_task_que_esta_fora_das_quatro(mcp, fase_atual):
+    engine.rodar(["set", f"--status={fase_atual}", "--", "corrigir-bug"])
+
+    with pytest.raises(ToolError, match="a fase só muda em task que está em"):
+        chamar(mcp, "freitask_set", id="corrigir-bug", fase="todo")
+
+    assert task_do_cli("corrigir-bug")["callout"] == fase_atual
+
+
+def test_set_muda_titulo_e_descricao_de_task_em_implementacao_sem_tocar_na_fase(mcp):
+    engine.rodar(["set", "--status=example", "--", "corrigir-bug"])
+
+    chamar(mcp, "freitask_set", id="corrigir-bug", titulo="Título novo", desc="anotado do celular")
+
+    task = task_do_cli("corrigir-bug")
+    assert (task["callout"], task["title"], task["desc"]) == (
+        "example",
+        "Título novo",
+        "anotado do celular",
+    )
+
+
 def test_set_anuncia_so_as_quatro_fases_no_schema(mcp):
     tools = asyncio.run(mcp.list_tools())
     schema = next(t for t in tools if t.name == "freitask_set").inputSchema
