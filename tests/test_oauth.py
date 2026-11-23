@@ -414,3 +414,63 @@ def test_uma_gravacao_que_falha_deixa_o_estado_de_antes_intacto(config, monkeypa
 
     assert (config.estado / "estado.json").read_bytes() == antes
     assert [p.name for p in config.estado.iterdir() if p.name.endswith(".tmp")] == []
+
+
+# --- o cliente público, como o Claude se registra pelo DCR ----------------------------
+#
+# A doc dos conectores diz que o DCR registra o Claude como cliente público: sem segredo, a troca
+# do código só tem o PKCE. É o caminho que o claude.ai percorre de verdade.
+
+
+def _troca_sem_segredo(c, cliente, codigo, verificador):
+    return c.post(
+        "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": codigo,
+            "redirect_uri": CALLBACK,
+            "client_id": cliente["client_id"],
+            "code_verifier": verificador,
+        },
+    )
+
+
+def test_cliente_publico_sem_segredo_conecta_e_renova(ar):
+    _, c = ar
+    cliente = registrar(c, token_endpoint_auth_method="none").json()
+    assert cliente.get("client_secret") is None
+    verificador, desafio = pkce()
+    codigo, _ = codigo_de(entrar(c, pedido_de(iniciar(c, cliente, desafio)), SENHA))
+
+    troca = _troca_sem_segredo(c, cliente, codigo, verificador)
+
+    assert troca.status_code == 200, troca.text
+    tokens = troca.json()
+    assert mcp(c, tokens["access_token"], "tools/list").status_code == 200
+
+    pedido = {
+        "grant_type": "refresh_token",
+        "client_id": cliente["client_id"],
+        "refresh_token": tokens["refresh_token"],
+    }
+    renovado = c.post("/token", data=pedido)
+    antigo = c.post("/token", data=pedido)
+
+    assert renovado.status_code == 200, renovado.text
+    assert renovado.json()["refresh_token"] != tokens["refresh_token"]
+    assert mcp(c, renovado.json()["access_token"], "tools/list").status_code == 200
+    assert antigo.status_code == 400
+    assert antigo.json()["error"] == "invalid_grant"
+
+
+def test_cliente_publico_nao_troca_o_codigo_sem_o_verificador_certo(ar):
+    servidor, c = ar
+    cliente = registrar(c, token_endpoint_auth_method="none").json()
+    _, desafio = pkce()
+    codigo, _ = codigo_de(entrar(c, pedido_de(iniciar(c, cliente, desafio)), SENHA))
+
+    resposta = _troca_sem_segredo(c, cliente, codigo, pkce()[0])
+
+    assert resposta.status_code == 400
+    assert "access_token" not in resposta.json()
+    assert servidor.provedor._acessos == {}
