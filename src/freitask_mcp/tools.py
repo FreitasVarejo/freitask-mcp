@@ -1,4 +1,4 @@
-"""As tools do freitask, registráveis em qualquer instância de `FastMCP`.
+"""As cinco tools do freitask, registráveis em qualquer instância de `FastMCP`.
 
 O servidor local (`local.py`) e a extensão do obsidian-web-mcp (`extension.py`) chamam a mesma
 `register_tools`. Aqui só há tradução entre a tool e o comando: regra de task mora na CLI
@@ -10,7 +10,9 @@ As tools são síncronas de propósito: o `run_audited` do upstream recusa corro
 from __future__ import annotations
 
 import json
+import unicodedata
 from collections.abc import Callable
+from typing import Literal
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -22,7 +24,12 @@ OPERACOES = {
     "freitask_list": "read",
     "freitask_show": "read",
     "freitask_doctor": "read",
+    "freitask_new": "mutation",
+    "freitask_set": "mutation",
 }
+
+# O que o ~/ObsidianVault/AGENTS.md já permite ao claude.ai: afrouxar é mudar aquela regra.
+Fase = Literal["todo", "abstract", "tip", "quote"]
 
 # Campos de cada task em `freitask_list`; o resto vem por `freitask_show`.
 CAMPOS_DA_LISTA = (
@@ -71,6 +78,16 @@ def _id_de(texto: str, o_que: str) -> str:
     return valor
 
 
+def _uma_linha(texto: str, campo: str) -> str:
+    """Título e descrição moram numa linha do callout: quebra de linha corromperia o bloco."""
+    for c in texto:
+        if unicodedata.category(c) in ("Cc", "Zl", "Zp"):
+            raise ToolError(
+                f"{campo} precisa caber numa linha, sem quebra nem caractere de controle"
+            )
+    return texto.strip()
+
+
 def _projetos() -> list[str]:
     dados = engine.json_de(engine.rodar(["projects", "--json"]))
     return [p["project"] for p in dados]
@@ -85,7 +102,7 @@ def _mostrar(id_: str) -> dict:
 
 
 def register_tools(mcp, audited: Auditoria = _sem_auditoria) -> None:
-    """Registra as tools em `mcp`.
+    """Registra as cinco tools em `mcp`.
 
     `audited(operacao, func, **contexto)` envolve as chamadas; a extensão passa o
     `run_audited` do upstream, o servidor local não audita.
@@ -211,5 +228,141 @@ def register_tools(mcp, audited: Auditoria = _sem_auditoria) -> None:
 
         try:
             return audited("freitask_doctor", trabalho)
+        except FreitaskErro as e:
+            raise _erro(e) from e
+
+    @mcp.tool(
+        name="freitask_new",
+        description=(
+            "Cria uma task nova (fase Não iniciada) num projeto que já existe, e regenera o "
+            "CURRENT.md. O id é normalizado para kebab-case. Recusa projeto que não existe e id "
+            "já usado."
+        ),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": False,
+        },
+    )
+    def freitask_new(projeto: str, id: str, titulo: str, desc: str | None = None) -> str:
+        """projeto: id de um projeto existente. id: id da task. titulo: uma linha. desc: o
+        estado em uma linha (opcional)."""
+        titulo_limpo = _uma_linha(titulo, "titulo")
+        if not titulo_limpo:
+            raise ToolError("titulo não pode ser vazio")
+        desc_limpa = _uma_linha(desc, "desc") if desc else ""
+        try:
+            alvo_projeto = _id_de(projeto, "projeto")
+            existentes = _projetos()
+            if alvo_projeto not in existentes:
+                raise ToolError(
+                    f"o projeto {alvo_projeto!r} não existe (a tool não cria projeto); "
+                    f"existem: {', '.join(existentes)}"
+                )
+            alvo_id = _id_de(id, "id")
+            # A CLI só recusa id repetido no mesmo projeto; em outro, o doctor acusaria
+            # `id-duplicado`, e o id é global (wikilink e bloqueada-por).
+            ocupada = next(
+                (
+                    t
+                    for t in engine.json_de(engine.rodar(["list", "--json", "--archived"]))
+                    if t["id"] == alvo_id
+                ),
+                None,
+            )
+            if ocupada is not None:
+                raise ToolError(
+                    f"já existe uma task com o id {alvo_id!r}: "
+                    f"{engine.relativo_ao_vault(ocupada['path'])}"
+                )
+        except FreitaskErro as e:
+            raise _erro(e) from e
+
+        def trabalho() -> str:
+            args = ["new", "--json"]
+            if desc_limpa:
+                args.append(f"--desc={desc_limpa}")
+            args += ["--", alvo_projeto, alvo_id, titulo_limpo]
+            criada = engine.json_de(engine.rodar(args))
+            return _json(
+                {
+                    "id": criada["id"],
+                    "project": criada["project"],
+                    "path": engine.relativo_ao_vault(criada["path"]),
+                }
+            )
+
+        try:
+            return audited(
+                "freitask_new", trabalho, path=f"projects/{alvo_projeto}/tasks/{alvo_id}.md"
+            )
+        except FreitaskErro as e:
+            raise _erro(e) from e
+
+    @mcp.tool(
+        name="freitask_set",
+        description=(
+            "Muda uma task: fase (só todo, abstract, tip ou quote: Não iniciada, Refinando, "
+            "Refinada, Algum dia), título, descrição, volta_em, prazo e bloqueada_por. Só o que "
+            "for dado muda; texto vazio limpa desc, volta_em, prazo e bloqueada_por. Datas em "
+            "AAAA-MM-DD. bloqueada_por substitui a lista inteira. Devolve a task como ficou."
+        ),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+    def freitask_set(
+        id: str,
+        fase: Fase | None = None,
+        titulo: str | None = None,
+        desc: str | None = None,
+        volta_em: str | None = None,
+        prazo: str | None = None,
+        bloqueada_por: list[str] | None = None,
+    ) -> str:
+        """id: o id da task. fase: todo, abstract, tip ou quote. titulo e desc: uma linha;
+        desc "" limpa. volta_em e prazo: AAAA-MM-DD, "" limpa. bloqueada_por: ids das tasks de
+        que esta espera; [] limpa."""
+        flags: list[str] = []
+        if fase is not None:
+            flags.append(f"--status={fase}")
+        if titulo is not None:
+            titulo_limpo = _uma_linha(titulo, "titulo")
+            if not titulo_limpo:
+                raise ToolError("titulo não pode ser vazio")
+            flags.append(f"--title={titulo_limpo}")
+        if desc is not None:
+            flags.append(f"--desc={_uma_linha(desc, 'desc')}")
+        if volta_em is not None:
+            flags.append(f"--volta-em={volta_em.strip()}")
+        if prazo is not None:
+            flags.append(f"--prazo={prazo.strip()}")
+        if not flags and bloqueada_por is None:
+            raise ToolError(
+                "nada a mudar: passe ao menos um de fase, titulo, desc, volta_em, prazo ou "
+                "bloqueada_por"
+            )
+        try:
+            if bloqueada_por is not None:
+                ids = [_id_de(b, "bloqueada_por") for b in bloqueada_por]
+                flags.append(f"--bloqueada-por={','.join(ids)}")
+            alvo_id = _id_de(id, "id")
+            caminho = engine.relativo_ao_vault(_mostrar(alvo_id)["path"])
+        except FreitaskErro as e:
+            raise _erro(e) from e
+
+        def trabalho() -> str:
+            engine.rodar(["set", *flags, "--", alvo_id])
+            task = _mostrar(alvo_id)
+            linha = _linha(task)
+            linha["ciclo"] = task.get("ciclo")
+            return _json(linha)
+
+        try:
+            return audited("freitask_set", trabalho, path=caminho)
         except FreitaskErro as e:
             raise _erro(e) from e
