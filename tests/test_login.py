@@ -1,6 +1,7 @@
 """A tela de login: nenhum código nasce sem a senha, os cabeçalhos da tela e o freio de senha."""
 
 import logging
+from dataclasses import replace
 
 import pytest
 
@@ -262,11 +263,25 @@ def test_o_log_diz_a_senha_errada_e_o_login_aceito_so_com_o_client_id(ar, caplog
     entrar(c, t, "errada-errada-errada")
     codigo, _ = codigo_de(entrar(c, t, SENHA))
 
+    comeco = cliente["client_id"][:8]
     assert f"cliente registrado: {cliente['client_id']}" in caplog.text
-    assert f"senha errada no login do cliente {cliente['client_id']}" in caplog.text
-    assert f"login aceito para o cliente {cliente['client_id']}" in caplog.text
+    assert f"senha errada no login do cliente {comeco}\n" in caplog.text + "\n"
+    assert f"login aceito para o cliente {comeco}\n" in caplog.text + "\n"
     for fora in (SENHA, "errada-errada-errada", t, codigo, "com quebra"):
         assert fora not in caplog.text
+
+
+def test_no_modo_de_cliente_fixo_o_log_do_login_nao_leva_o_id_inteiro(config, caplog):
+    """No modo fixo o client ID é o que abre a tela de login: o log só leva o começo dele."""
+    fixo = "cliente-fixo-de-teste-0123456789abcdef"
+    caplog.set_level(logging.INFO, logger="freitask_mcp")
+    with no_ar(replace(config, cliente=fixo)) as (_, c):
+        t = pedido_de(iniciar(c, {"client_id": fixo}, pkce()[1]))
+        entrar(c, t, "errada-errada-errada")
+        codigo_de(entrar(c, t, SENHA))
+
+    assert f"login aceito para o cliente {fixo[:8]}" in caplog.text
+    assert fixo not in caplog.text
 
 
 def test_o_log_avisa_quando_o_freio_de_senha_barra(ar, caplog):

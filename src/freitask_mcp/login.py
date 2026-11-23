@@ -23,9 +23,15 @@ from .config import Configuracao
 from .freios import Janela
 from .provedor import Provedor
 
-# O log do login leva só o `client_id`, que o servidor gerou: nome de cliente, senha, pedido e
-# código ficam fora. Sem estas linhas, um 429 no celular não tem como ser explicado depois.
+# O log do login leva só o começo do `client_id`: nome de cliente, senha, pedido e código ficam
+# fora, e o ID inteiro também, porque no modo de cliente fixo ele é o que abre a tela de login.
+# Sem estas linhas, um 429 no celular não tem como ser explicado depois.
 log = logging.getLogger(__name__)
+COMECO_DO_CLIENTE = 8
+
+
+def _curto(client_id: str) -> str:
+    return client_id[:COMECO_DO_CLIENTE]
 
 ERROS_DE_SENHA = 10
 JANELA_DE_ERROS = 15 * 60
@@ -135,13 +141,13 @@ def registrar_rotas(mcp: FastMCP, config: Configuracao, provedor: Provedor) -> J
         _, cliente = achado
         if not _igual(campos.get("senha", ""), config.senha):
             erros.registrar()
-            log.warning("senha errada no login do cliente %s", cliente.client_id)
+            log.warning("senha errada no login do cliente %s", _curto(cliente.client_id))
             return _pagina(
                 _formulario(cliente.client_name or "Um aplicativo", t, "Senha incorreta."),
                 status=401,
             )
         pedido, codigo = provedor.concluir_login(t)
-        log.info("login aceito para o cliente %s", pedido.client_id)
+        log.info("login aceito para o cliente %s", _curto(pedido.client_id))
         volta = construct_redirect_uri(
             str(pedido.params.redirect_uri), code=codigo, state=pedido.params.state
         )
