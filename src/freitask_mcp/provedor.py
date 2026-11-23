@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import os
 import secrets
@@ -31,6 +32,8 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from .config import ConfigInvalida, Configuracao
 from .freios import Janela
+
+log = logging.getLogger(__name__)
 
 VERSAO_DO_ESTADO = 1
 VALIDADE_DO_PEDIDO = 10 * 60
@@ -149,6 +152,7 @@ class Provedor:
         self._clientes[client_info.client_id] = client_info
         self.registros.registrar()
         self._salvar()
+        log.info("cliente registrado: %s", client_info.client_id)
 
     def _tem_token_vivo(self, cliente: OAuthClientInformationFull) -> bool:
         agora = self._agora()

@@ -1,5 +1,7 @@
 """A tela de login: nenhum código nasce sem a senha, os cabeçalhos da tela e o freio de senha."""
 
+import logging
+
 import pytest
 
 from .apoio_http import (
@@ -247,3 +249,34 @@ def test_senha_certa_nao_conta_para_o_freio(ar):
     for _ in range(12):
         _, t = novo_pedido(c)
         codigo_de(entrar(c, t, SENHA))
+
+
+# --- o log do login -------------------------------------------------------------------
+
+
+def test_o_log_diz_a_senha_errada_e_o_login_aceito_so_com_o_client_id(ar, caplog):
+    _, c = ar
+    caplog.set_level(logging.INFO, logger="freitask_mcp")
+    cliente, t = novo_pedido(c, client_name="Nome\ncom quebra")
+
+    entrar(c, t, "errada-errada-errada")
+    codigo, _ = codigo_de(entrar(c, t, SENHA))
+
+    assert f"cliente registrado: {cliente['client_id']}" in caplog.text
+    assert f"senha errada no login do cliente {cliente['client_id']}" in caplog.text
+    assert f"login aceito para o cliente {cliente['client_id']}" in caplog.text
+    for fora in (SENHA, "errada-errada-errada", t, codigo, "com quebra"):
+        assert fora not in caplog.text
+
+
+def test_o_log_avisa_quando_o_freio_de_senha_barra(ar, caplog):
+    _, c = ar
+    _, t = novo_pedido(c)
+    for _ in range(10):
+        entrar(c, t, "errada-errada-errada")
+    caplog.clear()
+
+    assert entrar(c, t, SENHA).status_code == 429
+
+    assert "o freio de senha está ativo" in caplog.text
+    assert SENHA not in caplog.text

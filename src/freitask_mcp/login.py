@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 from html import escape
 from urllib.parse import parse_qs
 
@@ -21,6 +22,10 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from .config import Configuracao
 from .freios import Janela
 from .provedor import Provedor
+
+# O log do login leva só o `client_id`, que o servidor gerou: nome de cliente, senha, pedido e
+# código ficam fora. Sem estas linhas, um 429 no celular não tem como ser explicado depois.
+log = logging.getLogger(__name__)
 
 ERROS_DE_SENHA = 10
 JANELA_DE_ERROS = 15 * 60
@@ -116,6 +121,7 @@ def registrar_rotas(mcp: FastMCP, config: Configuracao, provedor: Provedor) -> J
         if campos is None:
             return _pagina("<p>Pedido grande demais.</p>", status=413)
         if erros.cheia():
+            log.warning("login recusado: o freio de senha está ativo")
             return _pagina(
                 '<h1>freitask</h1><p class="erro">Erros de senha demais. '
                 "Espere alguns minutos.</p>",
@@ -129,11 +135,13 @@ def registrar_rotas(mcp: FastMCP, config: Configuracao, provedor: Provedor) -> J
         _, cliente = achado
         if not _igual(campos.get("senha", ""), config.senha):
             erros.registrar()
+            log.warning("senha errada no login do cliente %s", cliente.client_id)
             return _pagina(
                 _formulario(cliente.client_name or "Um aplicativo", t, "Senha incorreta."),
                 status=401,
             )
         pedido, codigo = provedor.concluir_login(t)
+        log.info("login aceito para o cliente %s", pedido.client_id)
         volta = construct_redirect_uri(
             str(pedido.params.redirect_uri), code=codigo, state=pedido.params.state
         )
