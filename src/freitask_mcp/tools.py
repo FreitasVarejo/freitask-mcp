@@ -1,10 +1,13 @@
 """As cinco tools do freitask, registráveis em qualquer instância de `FastMCP`.
 
-O servidor local (`local.py`) e a extensão do obsidian-web-mcp (`extension.py`) chamam a mesma
-`register_tools`. Aqui só há tradução entre a tool e o comando: regra de task mora na CLI
+O servidor local (`local.py`) e o remoto (`servidor.py`) chamam a mesma `register_tools`. Aqui só
+há tradução entre a tool e o comando: regra de task mora na CLI
 (`~/dev/freitask.nvim/docs/freitask.md`).
 
-As tools são síncronas de propósito: o `run_audited` do upstream recusa corrotina.
+As tools são síncronas de propósito: o motor chama a CLI por `subprocess.run`, e o `FastMCP` roda
+tool síncrona na própria tarefa do pedido, então o `get_access_token()` do SDK devolve quem chamou
+(a auditoria do servidor remoto lê o chamador por ele). O custo é o laço parar durante a CLI, o que
+um dono só, pedindo uma tool de cada vez, suporta.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from . import engine
 from .engine import FreitaskErro, Recusa
 
-# Operação na auditoria do upstream: "read" só registra com VAULT_AUDIT_LOG_INCLUDE_READS.
+# O que cada tool é para a auditoria do servidor remoto: só "mutation" deixa linha.
 OPERACOES = {
     "freitask_list": "read",
     "freitask_show": "read",
@@ -104,8 +107,8 @@ def _mostrar(id_: str) -> dict:
 def register_tools(mcp, audited: Auditoria = _sem_auditoria) -> None:
     """Registra as cinco tools em `mcp`.
 
-    `audited(operacao, func, **contexto)` envolve as chamadas; a extensão passa o
-    `run_audited` do upstream, o servidor local não audita.
+    `audited(operacao, func, **contexto)` envolve as chamadas; o servidor remoto passa a
+    auditoria dele (`auditoria.py`), o servidor local não audita.
     """
 
     @mcp.tool(

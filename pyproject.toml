@@ -1,17 +1,14 @@
 [project]
 name = "freitask-mcp"
 version = "0.1.0"
-description = "As tools do freitask para o claude.ai: embrulha a CLI do freitask num servidor MCP e numa extensão do obsidian-web-mcp"
+description = "As tools do freitask para o claude.ai: embrulha a CLI do freitask num servidor MCP, local em stdio e remoto em HTTP com OAuth"
 requires-python = ">=3.12"
 dependencies = [
     "mcp[cli]>=1.9,<2",
-    # O SHA que roda no pi01 (de 28/09); traz a auditoria de extensões.
-    "obsidian-web-mcp @ git+https://github.com/jimprosser/obsidian-web-mcp.git@6e4c25d12c862ed6526dd0703bb2d66ec5d4c65b",
 ]
 
 [project.scripts]
 freitask-mcp = "freitask_mcp.local:main"
-vault-mcp-freitask = "freitask_mcp.extension:main"
 
 [dependency-groups]
 dev = [
@@ -22,9 +19,6 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/freitask_mcp"]
