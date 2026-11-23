@@ -52,6 +52,26 @@ skill: globs do que mudou, dois espaços, o comando na raiz do repo.
   kill %1; ls -l "$S/estado"                            # estado.json em 0600 (e auditoria.jsonl, se houve escrita)
   ```
 
+  O ícone do conector: as três rotas respondem sem bearer, só GET, e cada pedido deixa uma linha
+  no log do servidor (o caminho e o começo do `User-Agent`). O `initialize` leva os dois `icons`,
+  com o endereço de `$U`, e a tela de login traz o desenho (o `t` vem do `Location` do `/authorize`, como no modo de cliente fixo abaixo):
+
+  ```bash
+  for r in /favicon.ico /favicon.svg /icon.png; do
+    curl -si -A "Mozilla/5.0 teste" $U$r | head -6   # 200, tipo certo, Cache-Control: private
+  done
+  curl -si -X POST $U/icon.png | head -1             # 405
+  # com um access token (veja os testes), o initialize devolve serverInfo.icons:
+  #   curl -s -X POST $U/mcp -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  #     -H 'Accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,
+  #     "method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},
+  #     "clientInfo":{"name":"x","version":"0"}}}'
+  curl -s "$U/login?t=$T" | grep -o '<link[^>]*>\|<img[^>]*>'  # o link do ícone e o desenho
+  ```
+
+  Para a imagem de produção: `uv build --wheel --out-dir "$(mktemp -d)"` e `unzip -l` no `.whl`
+  tem de listar os três arquivos em `freitask_mcp/imagens/`.
+
   O modo de cliente fixo: o mesmo comando, com `FREITASK_MCP_CLIENTE` de mentira (32 caracteres
   ou mais, só letras, dígitos, `-` e `_`). O `/register` passa a ser 404, e o `/authorize` só leva
   à tela de login com o ID certo:

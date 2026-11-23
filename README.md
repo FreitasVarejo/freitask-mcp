@@ -43,6 +43,12 @@ tokens) na pasta do estado, e registra cada escrita em `auditoria.jsonl` nela. Q
 internet fica atrás de um proxy com TLS; o endereço que o servidor escreve nos metadados vem de
 `FREITASK_MCP_URL`, nunca de cabeçalho da requisição.
 
+**O ícone do conector.** O servidor serve o monograma `f_` sem login, só em GET: `/favicon.ico`,
+`/favicon.svg` e `/icon.png`. O `initialize` do `/mcp` devolve o PNG e o SVG em `serverInfo.icons`,
+com o endereço de `FREITASK_MCP_URL`, e a tela de login mostra o desenho. Cada pedido de ícone
+deixa uma linha no log com o caminho e o começo do `User-Agent`, para ver quem o busca. O servidor
+local em stdio não leva ícone. Os arquivos estão em `src/freitask_mcp/imagens/`, dentro do pacote.
+
 **Cliente fixo (opcional).** Por padrão o registro é aberto: o claude.ai se registra em
 `/register`, e a tela de login fica ao alcance de quem registrar um cliente. Com
 `FREITASK_MCP_CLIENTE` (um client ID de 32 caracteres ou mais, só letras, dígitos, `-` e `_`) o
