@@ -33,7 +33,9 @@ AJUDA = """\
 freitask-mcp-http: o servidor MCP do freitask em HTTP, com login próprio (OAuth).
 
 Sobe o Streamable HTTP em /mcp (sem estado, resposta em JSON), as rotas do OAuth, a tela de
-login em /login e GET /health. Toda configuração é variável de ambiente:
+login em /login e GET /health. Serve também o ícone do conector, sem login, em GET /favicon.ico,
+/favicon.svg e /icon.png (o mesmo desenho; o /mcp devolve os dois últimos no initialize).
+Toda configuração é variável de ambiente:
 
   FREITASK_MCP_URL        o endereço público, https://... (em teste, http://127.0.0.1:<porta>);
                           é o emissor e, com /mcp, o recurso

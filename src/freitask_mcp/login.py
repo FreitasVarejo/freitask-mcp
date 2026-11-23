@@ -44,21 +44,25 @@ CABECALHOS = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": (
-        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'"
     ),
 }
 
 ESTILO = (
     "body{font:16px system-ui,sans-serif;max-width:24rem;margin:4rem auto;padding:0 1rem}"
+    "img{display:block;width:48px;height:48px;margin-bottom:1rem}"
     "input{display:block;width:100%;box-sizing:border-box;margin:.5rem 0 1rem;padding:.5rem}"
     "button{padding:.5rem 1rem}.erro{color:#b00020}"
 )
+
+LOGOTIPO = '<img src="/favicon.svg" width="48" height="48" alt="">'
 
 
 def _pagina(corpo: str, status: int = 200, headers: dict[str, str] | None = None) -> HTMLResponse:
     html = (
         '<!doctype html><html lang="pt-BR"><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<link rel="icon" href="/favicon.svg" type="image/svg+xml">'
         f"<title>freitask</title><style>{ESTILO}</style><body>{corpo}</body></html>"
     )
     return HTMLResponse(html, status_code=status, headers={**CABECALHOS, **(headers or {})})
@@ -67,7 +71,7 @@ def _pagina(corpo: str, status: int = 200, headers: dict[str, str] | None = None
 def _formulario(nome_do_cliente: str, t: str, erro: str | None = None) -> str:
     aviso = f'<p class="erro">{escape(erro)}</p>' if erro else ""
     return (
-        "<h1>freitask</h1>"
+        f"{LOGOTIPO}<h1>freitask</h1>"
         f"<p><b>{escape(nome_do_cliente)}</b> quer acessar as suas tasks.</p>{aviso}"
         '<form method="post" action="/login">'
         f'<input type="hidden" name="t" value="{escape(t, quote=True)}">'

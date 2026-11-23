@@ -167,7 +167,7 @@ CABECALHOS_DA_TELA = {
     "x-frame-options": "DENY",
     "referrer-policy": "no-referrer",
     "content-security-policy": (
-        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
+        "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'"
     ),
 }
 
